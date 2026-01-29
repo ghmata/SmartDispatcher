@@ -1,0 +1,207 @@
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  type ReactNode,
+} from "react";
+import { io, type Socket } from "socket.io-client";
+import { type Session } from "./api";
+
+interface LogEntry {
+  id: string;
+  timestamp: string;
+  chipId: string;
+  message: string;
+  type: "success" | "error" | "info";
+}
+
+interface SessionChange {
+  chipId: string;
+  status: "DISCONNECTED" | "QR" | "LOADING" | "SYNCING" | "READY" | "ONLINE";
+}
+
+interface SocketContextType {
+  socket: Socket | null;
+  isConnected: boolean;
+  logs: LogEntry[];
+  qrCodes: Record<string, string>;
+  sessionChanges: Record<string, SessionChange["status"]>;
+  sessions: Session[];
+  refreshSessions: () => Promise<void>;
+  clearLogs: () => void;
+  formatChipLabel: (session: Session) => string;
+  addOptimisticSession: (session: Session) => void;
+}
+
+const SocketContext = createContext<SocketContextType | null>(null);
+
+export function SocketProvider({ children }: { children: ReactNode }) {
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [qrCodes, setQrCodes] = useState<Record<string, string>>({});
+  const [sessionChanges, setSessionChanges] = useState<
+    Record<string, SessionChange["status"]>
+  >({});
+  const [sessions, setSessions] = useState<Session[]>([]);
+
+  const addOptimisticSession = useCallback((session: Session) => {
+      setSessions((prev) => [...prev, session]);
+  }, []);
+
+  // Utility to format label: "chip 1 - (11) 99999-9999"
+  const formatChipLabel = useCallback((session: Session) => {
+      const order = session.displayOrder || 1; 
+      // If phone exists, format it: 5511999999999 -> (11) 99999-9999
+      let phoneLabel = "";
+      if (session.phone) {
+          try {
+              const cleaned = session.phone.replace(/\D/g, '');
+              const ddd = cleaned.slice(2, 4);
+              const part1 = cleaned.slice(4, 9);
+              const part2 = cleaned.slice(9);
+              phoneLabel = ` - (${ddd}) ${part1}-${part2}`;
+          } catch {
+              phoneLabel = ` - ${session.phone}`;
+          }
+      } else if (session.status === "SYNCING" || session.status === "LOADING" || session.status === "QR") {
+          phoneLabel = " - Sincronizando...";
+      }
+
+      return `chip ${order}${phoneLabel}`;
+  }, []);
+
+  const refreshSessions = useCallback(async () => {
+    try {
+        // Fetch from API
+        // In a real app we might merge with pending local state, 
+        // but for now API is truth + Socket updates
+        
+        let baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+        if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+        
+        // If env var is root (http://localhost:3001) -> add /api/sessions
+        // If env var is api (http://localhost:3001/api) -> add /sessions
+        const url = baseUrl.endsWith('/api') ? `${baseUrl}/sessions` : `${baseUrl}/api/sessions`;
+        
+        const res = await fetch(url);
+        const data = await res.json();
+        setSessions(data);
+    } catch (e) {
+        console.error("Failed to refresh sessions", e);
+    }
+  }, []);
+
+  const clearLogs = useCallback(() => {
+    setLogs([]);
+  }, []);
+
+  useEffect(() => {
+    // Connect to Real Backend
+    // Ensure we handle defaults and avoid double /api
+    let baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+    
+    // Normalization: Remove trailing slash
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+    
+    // For Socket: must be root (remove /api if present)
+    const socketUrl = baseUrl.endsWith('/api') ? baseUrl.slice(0, -4) : baseUrl;
+
+    const socketInstance = io(socketUrl);
+
+    socketInstance.on("connect", () => {
+      setIsConnected(true);
+      console.log(`[Socket] Connected to ${socketUrl}`);
+      refreshSessions(); // Sync on connect
+    });
+
+    socketInstance.on("disconnect", () => {
+      setIsConnected(false);
+      console.log("[Socket] Disconnected");
+    });
+
+    socketInstance.on("log", (msg: string) => {
+        const newLog: LogEntry = {
+            id: crypto.randomUUID(),
+            timestamp: new Date().toLocaleTimeString("pt-BR"),
+            chipId: "system",
+            message: msg,
+            type: msg.includes("ERROR") ? "error" : "info"
+        };
+        setLogs((prev) => [...prev.slice(-99), newLog]);
+    });
+
+    socketInstance.on("qr_code", ({ chipId, qr }: { chipId: string; qr: string }) => {
+        console.log(`[Socket] QR received for ${chipId}`);
+        setQrCodes((prev) => ({ ...prev, [chipId]: qr }));
+        // Ensure session exists in list if new, and remove any OPTIMISTIC "temp_" sessions
+        setSessions((prev) => {
+            // Remove any temporary placeholders
+            const cleanPrev = prev.filter(s => !s.id.startsWith("temp_"));
+            
+            if (cleanPrev.find(s => s.id === chipId)) return cleanPrev;
+            // Add placeholder if completely new
+             return [...cleanPrev, { 
+                 id: chipId, 
+                 status: 'QR', 
+                 displayOrder: cleanPrev.length + 1 
+             }];
+        });
+    });
+
+    socketInstance.on("session_change", ({ chipId, status }: { chipId: string; status: SessionChange["status"] }) => {
+        console.log(`[Socket] Session change for ${chipId}: ${status}`);
+        setSessionChanges((prev) => ({ ...prev, [chipId]: status }));
+        
+        // Update main list status synchronously
+        setSessions((prev) => prev.map(s => s.id === chipId ? { ...s, status } : s));
+
+        // If ready, clear QR and refresh full data (to get phone number)
+        if (status === "READY" || status === "ONLINE") {
+            setQrCodes((prev) => {
+                const newQrs = { ...prev };
+                delete newQrs[chipId];
+                return newQrs;
+            });
+            setTimeout(refreshSessions, 2000); // Wait a bit for backend to populate info
+        }
+    });
+
+    setSocket(socketInstance);
+
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, [refreshSessions]);
+
+  return (
+    <SocketContext.Provider
+      value={{
+        socket,
+        isConnected,
+        logs,
+        qrCodes,
+        sessionChanges,
+        sessions,
+        refreshSessions,
+        clearLogs,
+        formatChipLabel,
+        addOptimisticSession
+      }}
+    >
+      {children}
+    </SocketContext.Provider>
+  );
+}
+
+export function useSocket() {
+  const context = useContext(SocketContext);
+  if (!context) {
+    throw new Error("useSocket must be used within a SocketProvider");
+  }
+  return context;
+}

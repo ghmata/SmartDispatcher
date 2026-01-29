@@ -1,0 +1,17 @@
+{
+  "compliance": {
+    "minDelay": 30000,
+    "maxDelay": 90000,
+    "maxMessagesPerHour": 50,
+    "maxMessagesPerDay": 300
+  },
+  "logging": {
+    "level": "info",
+    "maxFiles": "7d",
+    "maxSize": "10m"
+  },
+  "paths": {
+    "sessions": "data/sessions",
+    "logs": "data/logs"
+  }
+}

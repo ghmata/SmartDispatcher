@@ -1,0 +1,247 @@
+const express = require('express');
+const QRCode = require('qrcode');
+const http = require('http');
+const { Server } = require("socket.io");
+const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const logger = require('../modules/utils/logger');
+const CampaignManager = require('../modules/campaign/campaignManager');
+const SessionManager = require('../modules/whatsapp/sessionManager');
+const PathHelper = require('../modules/utils/pathHelper');
+
+// --- SINGLETONS ---
+// In a real app, we might use dependency injection, but here we instantiate singletons.
+// const sessionManager = new SessionManager(); // Removed unused instance
+const campaignManager = new CampaignManager(); 
+// Note: CampaignManager internally creates its own SessionManager. 
+// For this simple architecture, we will share instances or rely on file-system state.
+// Ideally, CampaignManager should accept a sessionManager instance.
+// Let's patch CampaignManager runtime to use our shared sessionManager if needed, 
+// or just use campaignManager's internal one for Simplicity. 
+// BETTER: Let's use campaignManager's sessionManager to ensure consistency.
+
+class ApiServer {
+  constructor() {
+    this.app = express();
+    this.server = http.createServer(this.app);
+    this.io = new Server(this.server, {
+      cors: {
+        origin: "*", // Allow all for dev (localhost:3000)
+        methods: ["GET", "POST"]
+      }
+    });
+    
+    this.upload = multer({ dest: PathHelper.resolve('data', 'uploads') });
+    this.port = 3001;
+
+    this.setupMiddleware();
+    this.setupRoutes();
+    this.setupSocket();
+  }
+
+  setupMiddleware() {
+    this.app.use(cors());
+    this.app.use(express.json());
+  }
+
+  setupRoutes() {
+    // GET /api/status - System Health & Stats
+    this.app.get('/api/status', (req, res) => {
+        // Mock stats for now, in future read from DB or logs
+        res.json({
+            active_campaigns: campaignManager.isPaused ? 0 : (fs.existsSync(campaignManager.stateFile) ? 1 : 0),
+            total_sent: 0, // TODO: Read from campaign state
+            queue_current: 0,
+            queue_total: 0
+        });
+    });
+
+    // GET /api/sessions - List Chips
+    this.app.get('/api/sessions', (req, res) => {
+        // campaignManager.sessionManager might not represent all sessions if not initialized?
+        // Let's assume we load sessions on start
+        const sessions = campaignManager.sessionManager.sessions || new Map();
+        const sessionList = Array.from(sessions.values()).map((s, index) => ({
+            id: s.id,
+            status: s.status, // READY, QR, etc.
+            name: s.info?.pushname || s.id,
+            phone: s.getPhoneNumber ? s.getPhoneNumber() : null,
+            battery: 100, // Mock
+            displayOrder: index + 1
+        }));
+        res.json(sessionList);
+    });
+
+    // Helper to attach Socket listeners to a client
+    this.attachClientListeners = (waClient) => {
+        if (!waClient || !waClient.client) return;
+        const id = waClient.id;
+        const socketIo = this.io;
+
+        // Clean up previous listeners to avoid duplicates if any (simple approach)
+        // In a full implementation we'd track listeners, but for now we assume fresh attach
+        // REMOVED removeAllListeners to avoid breaking internal WhatsAppClient logic!
+        
+        // Check if already ready/authenticated (for restored sessions)
+        if (waClient.status === 'READY') {
+             setTimeout(() => {
+                socketIo.emit('session_change', { chipId: id, status: 'READY' });
+             }, 500);
+        } else if (waClient.status === 'AUTHENTICATED' || waClient.status === 'CONNECTING') {
+            // If restoring, it might be connecting
+             setTimeout(() => {
+                socketIo.emit('session_change', { chipId: id, status: 'SYNCING' });
+             }, 500);
+        }
+
+        waClient.client.on('qr', async (qr) => {
+            logger.info(`[Socket] Emitting QR for ${id}`);
+            try {
+                const dataUrl = await QRCode.toDataURL(qr);
+                socketIo.emit('qr_code', { chipId: id, qr: dataUrl });
+            } catch (err) {
+                logger.error(`QR Generation Error: ${err.message}`);
+            }
+        });
+
+        waClient.client.on('ready', () => {
+             logger.info(`[Socket] Emitting READY for ${id}`);
+             socketIo.emit('session_change', { chipId: id, status: 'READY' });
+        });
+
+        waClient.client.on('authenticated', () => {
+             socketIo.emit('session_change', { chipId: id, status: 'SYNCING' });
+        });
+        
+        waClient.client.on('disconnected', () => {
+             socketIo.emit('session_change', { chipId: id, status: 'DISCONNECTED' });
+        });
+    };
+
+    // POST /api/session/new - Create new Chip
+    this.app.post('/api/session/new', async (req, res) => {
+        try {
+            const id = `chip_${Date.now()}`;
+            const waClient = await campaignManager.sessionManager.startSession(id); 
+
+            if (waClient) {
+                this.attachClientListeners(waClient);
+            }
+
+            res.json({ success: true, id });
+            this.io.emit('session_change', { chipId: id, status: 'LOADING' });
+
+        } catch (e) {
+            logger.error(`API Create Session Error: ${e.message}`);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/campaign/start - Start Dispatch
+    this.app.post('/api/campaign/start', this.upload.single('file'), async (req, res) => {
+        try {
+            const { message, delayMin, delayMax } = req.body;
+            const file = req.file;
+
+            if (!file) throw new Error('No file uploaded');
+
+            // Move file to permanent location if needed, or parse directly
+            logger.info(`API: Starting campaign with ${file.originalname}`);
+
+            // Async start (Fire and Forget)
+            campaignManager.initialize().then(() => {
+                return campaignManager.startCampaign(file.path, message);
+            }).catch(err => {
+                logger.error(`Campaign Background Error: ${err.message}`);
+                this.io.emit('log', `[ERROR] Campaign Failed: ${err.message}`);
+            });
+
+            res.json({ success: true, message: 'Campaign started in background' });
+
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+  }
+
+  setupSocket() {
+    this.io.on('connection', (socket) => {
+        logger.info(`Frontend connected: ${socket.id}`);
+        
+        // Initial State Push
+        socket.emit('log', '[SYSTEM] Connected to Backend API');
+
+        socket.on('disconnect', () => {
+            logger.info(`Frontend disconnected: ${socket.id}`);
+        });
+    });
+
+    // Hook into Logger to stream logs to frontend
+    // We can add a transport to Winston, or just Monkey Patch for now
+    // Let's add a transport in a cleaner way later, 
+    // for MVP -> Monkey Patch logger.info/error
+    // Hook into Logger to stream logs to frontend
+    // DISABLED FOR STABILITY: Monkey patching logic caused crash.
+    // We will rely on explicit socket emits for critical events.
+    
+    /*
+    const originalInfo = logger.info.bind(logger);
+    logger.info = (msg, meta) => {
+        originalInfo(msg, meta);
+        this.io.emit('log', `[INFO] ${msg}`);
+    };
+
+    const originalError = logger.error.bind(logger);
+    logger.error = (msg, meta) => {
+        originalError(msg, meta);
+        this.io.emit('log', `[ERROR] ${msg}`);
+    };
+    */
+
+    // Hook into SessionManager events?
+    // We need to listen to 'qr' events from whatsapp clients.
+    // This requires refactoring SessionManager to emit global events 
+    // or attaching listeners when we create sessions.
+    // For Day 5, we'll assume basic log streaming covers visibility.
+  }
+
+  start() {
+    this.server.listen(this.port, async () => {
+        logger.info(`API Server running on http://localhost:${this.port}`);
+        
+        // Load saved sessions after server starts
+        await campaignManager.sessionManager.loadSessions();
+        
+        // Attach listeners to restored sessions
+        const restoredSessions = campaignManager.sessionManager.getAllSessions();
+        if (restoredSessions.length > 0) {
+            logger.info(`Attaching listeners to ${restoredSessions.length} restored sessions.`);
+            restoredSessions.forEach(client => {
+                this.attachClientListeners(client);
+            });
+        }
+    });
+
+    // Global Error Handlers to prevent crash loops
+    process.on('uncaughtException', (err) => {
+        logger.error(`UNCAUGHT EXCEPTION: ${err.message}`);
+        // In production, we should exit, but for dev we might log and keep alive if minor
+        // process.exit(1); 
+    });
+
+    process.on('unhandledRejection', (reason, promise) => {
+        logger.error(`UNHANDLED REJECTION: ${reason}`);
+    });
+  }
+}
+
+// Start Server if run directly
+if (require.main === module) {
+    const api = new ApiServer();
+    api.start();
+}
+
+module.exports = ApiServer;

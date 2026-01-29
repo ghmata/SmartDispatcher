@@ -1,0 +1,41 @@
+{
+  "name": "smart-whatsapp-dispatcher",
+  "version": "1.0.0",
+  "description": "Portable WhatsApp Dispatcher for Windows",
+  "main": "src/main/index.js",
+  "scripts": {
+    "test": "node tests/test-parser.js",
+    "lint": "eslint src/",
+    "start": "node src/server/api.js",
+    "cli": "node src/main/index.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "automation",
+    "portable",
+    "excel"
+  ],
+  "author": "Architecture Team",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "multer": "^2.0.2",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "socket.io": "^4.8.3",
+    "whatsapp-web.js": "^1.23.0",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^4.7.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-node": "^11.1.0",
+    "prettier": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
