@@ -213,7 +213,7 @@ class ExcelParser {
   }
 
   _validateHeaders(columnMap, headersFound) {
-    const missingColumns = this.requiredColumns.filter(col => !columnMap[col]);
+    const missingColumns = this.requiredColumns.filter(col => typeof columnMap[col] === 'undefined');
     if (missingColumns.length > 0) {
       throw new Error(`Missing required columns: ${missingColumns.join(', ')}. Found: ${headersFound.join(', ')}`);
     }
