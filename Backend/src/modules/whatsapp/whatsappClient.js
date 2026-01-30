@@ -65,6 +65,7 @@ class WhatsAppClient extends EventEmitter {
       const { connection, lastDisconnect } = update;
       if (connection === 'open') {
         this.reconnectAttempts = 0;
+        this.lastQr = null; // Clear QR on success
         this._transition(STATES.CONNECTED, 'connection_open');
         this._transition(STATES.READY, 'ready');
         this._scheduleIdle();

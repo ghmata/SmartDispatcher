@@ -131,8 +131,8 @@ export function ChipCard({ session, qrCode, onStatusChange }: ChipCardProps) {
           {getStatusBadge()}
         </div>
 
-        {/* QR Code Display */}
-        {(qrCode || session.status === "QR" || session.status === "LOADING" || session.status === "SYNCING" || session.status === "CONNECTING" || session.status === "AUTHENTICATED") && (
+        {/* QR Code Display - Only if NOT connected */}
+        {!(session.status === "READY" || session.status === "ONLINE") && (qrCode || session.status === "QR" || session.status === "LOADING" || session.status === "SYNCING" || session.status === "CONNECTING" || session.status === "AUTHENTICATED") && (
           <div className="mb-4 flex flex-col items-center justify-center rounded-lg bg-white p-4">
             {qrCode ? (
               <img
