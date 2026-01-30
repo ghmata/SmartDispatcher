@@ -3,7 +3,6 @@ const qrcode = require('qrcode-terminal');
 const EventEmitter = require('events');
 const logger = require('../utils/logger');
 const pathHelper = require('../utils/pathHelper');
-const path = require('path');
 
 class WhatsAppClient extends EventEmitter {
   constructor(id) {
@@ -21,6 +20,10 @@ class WhatsAppClient extends EventEmitter {
         dataPath: sessionPath
       }),
       // Reverted: v1.26.0 should work natively. Forcing old version might be the issue.
+      webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+      },
       puppeteer: {
         headless: true,
         args: [
@@ -48,16 +51,19 @@ class WhatsAppClient extends EventEmitter {
   _bindEvents() {
     this.client.on('qr', (qr) => {
       this._setStatus('QR');
+      this.lastQr = qr; // Persist QR for API retrieval
       logger.info(`[${this.id}] QR Code received. Please scan.`);
       qrcode.generate(qr, { small: true });
     });
 
     this.client.on('loading_screen', (percent, message) => {
-      logger.info(`[${this.id}] Loading: ${percent}% - ${message}`);
+      this._setStatus('LOADING');
+      logger.info(`[${this.id}] Loading WhatsApp Web: ${percent}% - ${message}`);
     });
 
     this.client.on('ready', () => {
       this._setStatus('READY');
+      this.lastQr = null;
       logger.info(`[${this.id}] Client is ready!`);
     });
 
@@ -65,7 +71,6 @@ class WhatsAppClient extends EventEmitter {
       this._setStatus('AUTHENTICATED');
       logger.info(`[${this.id}] Client authenticated.`);
       
-      // Fallback: If READY doesn't fire in 30s, check if we can actually use the client
       // Fallback: If READY doesn't fire in 30s, check if we can actually use the client
       // WARNING: Forcing READY without the event caused crashes (sendSeen undefined).
       // We will only log the delay, not force state.

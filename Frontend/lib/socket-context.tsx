@@ -106,7 +106,17 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         
         const res = await fetch(url);
         const data = await res.json();
+        // Use mergeSessions from session-store to handle updates
         setSessions((prev) => mergeSessions(prev, data));
+
+        // Restore QR codes from persistence (Fix for disappearing UI)
+        const restoredQrs: Record<string, string> = {};
+        data.forEach((s: any) => {
+            if (s.qr) restoredQrs[s.id] = s.qr;
+        });
+        if (Object.keys(restoredQrs).length > 0) {
+            setQrCodes(prev => ({ ...prev, ...restoredQrs }));
+        }
     } catch (e) {
         console.error("Failed to refresh sessions", e);
     }

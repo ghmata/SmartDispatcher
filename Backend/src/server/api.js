@@ -60,17 +60,32 @@ class ApiServer {
     });
 
     // GET /api/sessions - List Chips
-    this.app.get('/api/sessions', (req, res) => {
-        // campaignManager.sessionManager might not represent all sessions if not initialized?
-        // Let's assume we load sessions on start
-        const sessions = campaignManager.sessionManager.sessions || new Map();
-        const sessionList = Array.from(sessions.values()).map((s, index) => ({
-            id: s.id,
-            status: s.status, // READY, QR, etc.
-            name: s.getDisplayName ? s.getDisplayName() : (s.client?.info?.pushname || null),
-            phone: s.getPhoneNumber ? s.getPhoneNumber() : null,
-            battery: 100, // Mock
-            displayOrder: s.displayOrder || index + 1
+    this.app.get('/api/sessions', async (req, res) => {
+        const sessionsMap = campaignManager.sessionManager.sessions || new Map();
+        const sortedSessions = Array.from(sessionsMap.values()).sort((a, b) => {
+            const timeA = parseInt(String(a.id).split('_')[1] || a.displayOrder || 0, 10) || 0;
+            const timeB = parseInt(String(b.id).split('_')[1] || b.displayOrder || 0, 10) || 0;
+            return timeA - timeB || (a.displayOrder || 0) - (b.displayOrder || 0);
+        });
+
+        const sessionList = await Promise.all(sortedSessions.map(async (s, index) => {
+            let qrDataUrl = null;
+            if (s.lastQr) {
+                try {
+                    qrDataUrl = await QRCode.toDataURL(s.lastQr);
+                } catch (e) {
+                    logger.debug(`QR toDataURL failed for ${s.id}: ${e.message}`);
+                }
+            }
+            return {
+                id: s.id,
+                status: s.status,
+                name: s.getDisplayName ? s.getDisplayName() : (s.client?.info?.pushname || null),
+                phone: s.getPhoneNumber ? s.getPhoneNumber() : null,
+                battery: 100,
+                displayOrder: s.displayOrder || index + 1,
+                qr: qrDataUrl
+            };
         }));
         res.json(sessionList);
     });
@@ -107,6 +122,10 @@ class ApiServer {
             }
         });
 
+        waClient.client.on('loading_screen', () => {
+            socketIo.emit('session_change', { chipId: id, status: 'LOADING' });
+        });
+
         waClient.client.on('ready', () => {
              logger.info(`[Socket] Emitting READY for ${id}`);
              socketIo.emit('session_change', { chipId: id, status: 'READY' });
@@ -118,6 +137,10 @@ class ApiServer {
         
         waClient.client.on('disconnected', () => {
              socketIo.emit('session_change', { chipId: id, status: 'DISCONNECTED' });
+        });
+
+        waClient.client.on('auth_failure', () => {
+             socketIo.emit('session_change', { chipId: id, status: 'ERROR' });
         });
     };
 

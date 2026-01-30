@@ -6,6 +6,7 @@ class SessionManager {
     this.sessions = new Map();
     this.startingSessions = new Map();
     this.nextDisplayOrder = 1;
+    this.isLoaded = false;
   }
 
   async startSession(id) {
@@ -79,18 +80,27 @@ class SessionManager {
   }
   
   async stopSession(id) {
-     const client = this.sessions.get(id);
-     if (client) {
-         await client.client.destroy();
-         this.sessions.delete(id);
-         logger.info(`Session ${id} stopped.`);
-     }
+    const client = this.sessions.get(id);
+    if (!client) return;
+    try {
+      if (client.client && typeof client.client.destroy === 'function') {
+        await client.client.destroy();
+      }
+    } catch (err) {
+      logger.error(`Error destroying session ${id}: ${err.message}`);
+    }
+    this.sessions.delete(id);
+    this.startingSessions.delete(id);
+    logger.info(`Session ${id} stopped.`);
   }
 
   async loadSessions() {
+    if (this.isLoaded) {
+        return; // Already loaded, prevent duplication
+    }
+
     try {
         const fs = require('fs');
-        const path = require('path');
         const pathHelper = require('../utils/pathHelper');
 
         const sessionsDir = pathHelper.getSessionsDir();
@@ -109,6 +119,7 @@ class SessionManager {
             logger.info(`Found saved session: ${id}, restoring...`);
             await this.startSession(id);
         }
+        this.isLoaded = true;
     } catch (error) {
         logger.error(`Error loading saved sessions: ${error.message}`);
     }
