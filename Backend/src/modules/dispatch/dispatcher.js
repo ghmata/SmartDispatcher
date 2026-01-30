@@ -24,6 +24,10 @@ class Dispatcher {
       throw new Error('No active sessions available for dispatch.');
     }
 
+    if (client.waitUntilReady) {
+      await client.waitUntilReady({ timeoutMs: 30000 });
+    }
+
     // 3. Calculate Delays (Anti-Ban)
     const typingTime = this.compliance.getTypingDelay(finalMessage);
     const postSendDelay = this.compliance.getVariableDelay();

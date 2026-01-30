@@ -67,10 +67,10 @@ class ApiServer {
         const sessionList = Array.from(sessions.values()).map((s, index) => ({
             id: s.id,
             status: s.status, // READY, QR, etc.
-            name: s.info?.pushname || s.id,
+            name: s.getDisplayName ? s.getDisplayName() : (s.client?.info?.pushname || null),
             phone: s.getPhoneNumber ? s.getPhoneNumber() : null,
             battery: 100, // Mock
-            displayOrder: index + 1
+            displayOrder: s.displayOrder || index + 1
         }));
         res.json(sessionList);
     });

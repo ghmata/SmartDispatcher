@@ -1,13 +1,16 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const EventEmitter = require('events');
 const logger = require('../utils/logger');
 const pathHelper = require('../utils/pathHelper');
 const path = require('path');
 
-class WhatsAppClient {
+class WhatsAppClient extends EventEmitter {
   constructor(id) {
+    super();
     this.id = id;
-    this.status = 'DISCONNECTED'; // DISCONNECTED, CONNECTING, READY
+    this.status = 'DISCONNECTED'; // DISCONNECTED, CONNECTING, AUTHENTICATED, READY, SENDING, ERROR
+    this.lastStatusChangeAt = Date.now();
     
     // Ensure portable session path
     const sessionPath = pathHelper.getSessionsDir();
@@ -35,9 +38,16 @@ class WhatsAppClient {
     this._bindEvents();
   }
 
+  _setStatus(status) {
+    if (this.status === status) return;
+    this.status = status;
+    this.lastStatusChangeAt = Date.now();
+    this.emit('status', { id: this.id, status });
+  }
+
   _bindEvents() {
     this.client.on('qr', (qr) => {
-      this.status = 'WAITING_QR';
+      this._setStatus('QR');
       logger.info(`[${this.id}] QR Code received. Please scan.`);
       qrcode.generate(qr, { small: true });
     });
@@ -47,12 +57,12 @@ class WhatsAppClient {
     });
 
     this.client.on('ready', () => {
-      this.status = 'READY';
+      this._setStatus('READY');
       logger.info(`[${this.id}] Client is ready!`);
     });
 
     this.client.on('authenticated', () => {
-      this.status = 'AUTHENTICATED';
+      this._setStatus('AUTHENTICATED');
       logger.info(`[${this.id}] Client authenticated.`);
       
       // Fallback: If READY doesn't fire in 30s, check if we can actually use the client
@@ -67,7 +77,7 @@ class WhatsAppClient {
     });
 
     this.client.on('auth_failure', (msg) => {
-      this.status = 'AUTH_FAILURE';
+      this._setStatus('ERROR');
       logger.error(`[${this.id}] Authentication failure: ${msg}`);
     });
 
@@ -77,26 +87,51 @@ class WhatsAppClient {
     });
 
     this.client.on('disconnected', (reason) => {
-      this.status = 'DISCONNECTED';
+      this._setStatus('DISCONNECTED');
       logger.warn(`[${this.id}] Client disconnected: ${reason}`);
     });
   }
 
   async initialize() {
     logger.info(`[${this.id}] Initializing...`);
-    this.status = 'CONNECTING';
+    this._setStatus('CONNECTING');
     try {
       await this.client.initialize();
     } catch (error) {
       logger.error(`[${this.id}] Init error: ${error.message}`);
-      this.status = 'ERROR';
+      this._setStatus('ERROR');
     }
+  }
+
+  waitUntilReady({ timeoutMs = 60000 } = {}) {
+    if (this.status === 'READY') {
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.removeListener('status', handleStatus);
+        reject(new Error(`Client ${this.id} did not reach READY within ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      const handleStatus = ({ status }) => {
+        if (status === 'READY') {
+          clearTimeout(timeoutId);
+          this.removeListener('status', handleStatus);
+          resolve(true);
+        }
+      };
+
+      this.on('status', handleStatus);
+    });
   }
 
   async sendMessage(to, message) {
     if (this.status !== 'READY') {
       throw new Error(`Client ${this.id} is not ready (Status: ${this.status})`);
     }
+
+    this._setStatus('SENDING');
     
     // Resolve ID to avoid "No LID" error
     let chatId = to;
@@ -119,7 +154,14 @@ class WhatsAppClient {
         }
     }
 
-    return this.client.sendMessage(chatId, message);
+    try {
+      const result = await this.client.sendMessage(chatId, message);
+      this._setStatus('READY');
+      return result;
+    } catch (error) {
+      this._setStatus('ERROR');
+      throw error;
+    }
   }
 
   isReady() {
@@ -129,6 +171,13 @@ class WhatsAppClient {
   getPhoneNumber() {
       if (this.client && this.client.info && this.client.info.wid) {
           return this.client.info.wid.user;
+      }
+      return null;
+  }
+
+  getDisplayName() {
+      if (this.client && this.client.info && this.client.info.pushname) {
+          return this.client.info.pushname;
       }
       return null;
   }

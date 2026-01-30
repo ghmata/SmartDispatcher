@@ -10,6 +10,7 @@ import {
 } from "react";
 import { io, type Socket } from "socket.io-client";
 import { type Session } from "./api";
+import { mergeSessions } from "./sessions-store";
 
 interface LogEntry {
   id: string;
@@ -21,7 +22,16 @@ interface LogEntry {
 
 interface SessionChange {
   chipId: string;
-  status: "DISCONNECTED" | "QR" | "LOADING" | "SYNCING" | "READY" | "ONLINE";
+  status:
+    | "DISCONNECTED"
+    | "QR"
+    | "LOADING"
+    | "SYNCING"
+    | "READY"
+    | "ONLINE"
+    | "CONNECTING"
+    | "AUTHENTICATED"
+    | "ERROR";
 }
 
 interface SocketContextType {
@@ -68,7 +78,13 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           } catch {
               phoneLabel = ` - ${session.phone}`;
           }
-      } else if (session.status === "SYNCING" || session.status === "LOADING" || session.status === "QR") {
+      } else if (
+        session.status === "SYNCING" ||
+        session.status === "LOADING" ||
+        session.status === "QR" ||
+        session.status === "CONNECTING" ||
+        session.status === "AUTHENTICATED"
+      ) {
           phoneLabel = " - Sincronizando...";
       }
 
@@ -90,7 +106,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         
         const res = await fetch(url);
         const data = await res.json();
-        setSessions(data);
+        setSessions((prev) => mergeSessions(prev, data));
     } catch (e) {
         console.error("Failed to refresh sessions", e);
     }
@@ -158,7 +174,16 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         setSessionChanges((prev) => ({ ...prev, [chipId]: status }));
         
         // Update main list status synchronously
-        setSessions((prev) => prev.map(s => s.id === chipId ? { ...s, status } : s));
+        setSessions((prev) => {
+            const exists = prev.find((s) => s.id === chipId);
+            if (!exists) {
+                return [
+                  ...prev,
+                  { id: chipId, status, displayOrder: prev.length + 1 },
+                ];
+            }
+            return prev.map(s => s.id === chipId ? { ...s, status } : s);
+        });
 
         // If ready, clear QR and refresh full data (to get phone number)
         if (status === "READY" || status === "ONLINE") {
