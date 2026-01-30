@@ -50,6 +50,7 @@ export function ChipCard({ session, qrCode, onStatusChange }: ChipCardProps) {
       case "AUTHENTICATED":
         return "border-yellow-500/50 hover:border-yellow-500";
       case "DISCONNECTED":
+      case "ERROR":
         return "border-red-500/50 hover:border-red-500";
       default:
         return "border-border";
@@ -83,6 +84,12 @@ export function ChipCard({ session, qrCode, onStatusChange }: ChipCardProps) {
         return (
           <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
             Desconectado
+          </Badge>
+        );
+      case "ERROR":
+        return (
+          <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
+            Erro
           </Badge>
         );
       default:

@@ -2,8 +2,31 @@ const logger = require('../utils/logger');
 
 class LoadBalancer {
   constructor(sessionManager) {
-    this.sessionManager = sessionManager;
+    this.sessionManager = sessionManager || null;
     this.currentIndex = 0;
+    this.clients = [];
+  }
+
+  /**
+   * Backward-compatible method for manually registering clients.
+   * This avoids runtime failures when older code expects addClient().
+   * @param {WhatsAppClient} client
+   */
+  addClient(client) {
+    if (!client) return;
+    if (this.clients.find((existing) => existing.id === client.id)) {
+      logger.debug(`LoadBalancer: Client [${client.id}] already registered.`);
+      return;
+    }
+    this.clients.push(client);
+    logger.info(`LoadBalancer: Registered client [${client.id}].`);
+  }
+
+  _getActiveClients() {
+    if (this.sessionManager && this.sessionManager.getActiveSessions) {
+      return this.sessionManager.getActiveSessions();
+    }
+    return this.clients.filter((client) => client.isReady && client.isReady());
   }
 
   /**
@@ -12,7 +35,7 @@ class LoadBalancer {
    * @returns {WhatsAppClient} The selected client or null if none available.
    */
   getNextClient() {
-    const activeClients = this.sessionManager.getActiveSessions();
+    const activeClients = this._getActiveClients();
     const total = activeClients.length;
 
     if (total === 0) {

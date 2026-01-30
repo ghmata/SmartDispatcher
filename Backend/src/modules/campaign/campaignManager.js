@@ -42,11 +42,13 @@ class CampaignManager {
     logger.info('Initializing Campaign Manager...');
     await this.sessionManager.loadSessions();
     
-    // Wait for sessions to be ready (simplified for Day 4 demo)
-    // In production, we might want a more robust wait mechanism
-    const sessions = this.sessionManager.getActiveSessions();
-    if (sessions.length === 0) {
-      throw new Error('No sessions found. Please run multisession setup first.');
+    // Wait for at least one READY session before allowing dispatch
+    let sessions;
+    try {
+      sessions = await this.sessionManager.waitForReady({ minReady: 1, timeoutMs: 60000 });
+    } catch (error) {
+      logger.error(`Campaign init blocked: ${error.message}`);
+      throw new Error('No READY sessions available. Please connect at least one chip.');
     }
     
     // Add sessions to LoadBalancer (filtering only ready ones ideally)

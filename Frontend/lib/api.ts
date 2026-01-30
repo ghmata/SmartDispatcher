@@ -69,7 +69,16 @@ async function fetchClient<T>(endpoint: string, options: RequestInit = {}): Prom
 
 export interface Session {
   id: string;
-  status: "DISCONNECTED" | "QR" | "LOADING" | "SYNCING" | "READY" | "ONLINE";
+  status:
+    | "DISCONNECTED"
+    | "QR"
+    | "LOADING"
+    | "SYNCING"
+    | "READY"
+    | "ONLINE"
+    | "CONNECTING"
+    | "AUTHENTICATED"
+    | "ERROR";
   name?: string;
   photo?: string;
   battery?: number;
