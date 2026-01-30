@@ -53,9 +53,15 @@ class ApiServer {
     this.app.get('/api/status', (req, res) => {
         const state = campaignManager.loadState();
         const messageStatus = state.messageStatus || {};
+        codex/execute-correction-plan-with-best-practices-2skxaa
+        const sentStatuses = new Set(['SERVER_ACK', 'SENT', 'DELIVERED', 'READ', 'PLAYED']);
+        const deliveredStatuses = new Set(['DELIVERED', 'READ', 'PLAYED']);
+        const totalSent = Object.values(messageStatus).filter((msg) => sentStatuses.has(msg.status)).length;
+        const delivered = Object.values(messageStatus).filter((msg) => deliveredStatuses.has(msg.status)).length;
+=======
         const totalSent = Object.values(messageStatus).filter((msg) => msg.status === 'SERVER_ACK').length;
         const delivered = Object.values(messageStatus).filter((msg) => msg.status === 'DELIVERED').length;
-        const deliveryRate = totalSent ? Number(((delivered / totalSent) * 100).toFixed(1)) : 0;
+         const deliveryRate = totalSent ? Number(((delivered / totalSent) * 100).toFixed(1)) : 0;
         res.json({
             active_campaigns: campaignManager.isPaused ? 0 : (fs.existsSync(campaignManager.stateFile) ? 1 : 0),
             total_sent: totalSent,
@@ -144,7 +150,7 @@ class ApiServer {
                 this.attachClientListeners(waClient);
             }
 
-            res.json({ success: true, id });
+            res.json({ success: true, id, status: 'LOADING' });
             this.io.emit('session_change', { chipId: id, status: 'LOADING' });
 
         } catch (e) {

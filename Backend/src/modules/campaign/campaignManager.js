@@ -1,5 +1,4 @@
 const fs = require('fs');
-const path = require('path');
 const logger = require('../utils/logger');
 const ExcelParser = require('../parser/excelParser');
 const Dispatcher = require('../dispatch/dispatcher');
