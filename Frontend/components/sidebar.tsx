@@ -22,7 +22,6 @@ const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "connections", label: "Conexões", icon: Smartphone },
   { id: "campaign", label: "Nova Campanha", icon: Rocket },
-  { id: "settings", label: "Configurações", icon: Settings },
 ];
 
 export function Sidebar({ currentRoute, onRouteChange }: SidebarProps) {

@@ -1,0 +1,141 @@
+
+> smart-dispatcher-launcher@1.0.0 dist
+> electron-builder
+
+  â€¢ electron-builder  version=25.1.8 os=10.0.26200
+  â€¢ loaded configuration  file=package.json ("build" field)
+  â€¢ executing @electron/rebuild  electronVersion=28.2.0 arch=x64 buildFromSource=false appDir=./
+  â€¢ installing native dependencies  arch=x64
+  â€¢ completed installing native dependencies
+  â€¢ packaging       platform=win32 arch=x64 electron=28.2.0 appOutDir=ist\win-unpacked
+  â€¢ asar usage is disabled â€” this is strongly not recommended  solution=enable asar and use asarUnpack to unpack files that must be externally available
+  â€¢ asar usage is disabled â€” this is strongly not recommended  solution=enable asar and use asarUnpack to unpack files that must be externally available
+  â€¢ default Electron icon is used  reason=application icon is not set
+  â€¢ downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  â€¢ downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=949ms
+  â¨¯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\564012879.7z
+    --
+    Path = C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\564012879.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : O cliente nÆo tem o privil‚gio necess rio. : C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\564012879\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : O cliente nÆo tem o privil‚gio necess rio. : C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\564012879\darwin\10.12\lib\libssl.dylib
+    
+                    command='Z:\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\564012879.7z' '-oC:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\564012879'
+                    workingDir=C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign
+  â€¢ Above command failed, retrying 3 more times
+  â€¢ downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  â€¢ downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=619ms
+  â¨¯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\467906615.7z
+    --
+    Path = C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\467906615.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : O cliente nÆo tem o privil‚gio necess rio. : C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\467906615\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : O cliente nÆo tem o privil‚gio necess rio. : C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\467906615\darwin\10.12\lib\libssl.dylib
+    
+                    command='Z:\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\467906615.7z' '-oC:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\467906615'
+                    workingDir=C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign
+  â€¢ Above command failed, retrying 3 more times
+  â€¢ downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  â€¢ downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=1.836s
+  â¨¯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\179125479.7z
+    --
+    Path = C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\179125479.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : O cliente nÆo tem o privil‚gio necess rio. : C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\179125479\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : O cliente nÆo tem o privil‚gio necess rio. : C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\179125479\darwin\10.12\lib\libssl.dylib
+    
+                    command='Z:\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\179125479.7z' '-oC:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\179125479'
+                    workingDir=C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign
+  â€¢ Above command failed, retrying 3 more times
+  â€¢ downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  â€¢ downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=555ms
+  â¨¯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\956696111.7z
+    --
+    Path = C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\956696111.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : O cliente nÆo tem o privil‚gio necess rio. : C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\956696111\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : O cliente nÆo tem o privil‚gio necess rio. : C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\956696111\darwin\10.12\lib\libssl.dylib
+    
+                    command='Z:\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\956696111.7z' '-oC:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign\956696111'
+                    workingDir=C:\Users\gabri\AppData\Local\electron-builder\Cache\winCodeSign
+  â€¢ Above command failed, retrying 3 more times

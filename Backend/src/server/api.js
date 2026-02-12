@@ -11,17 +11,13 @@ const logger = require('../modules/utils/logger');
 const CampaignManager = require('../modules/campaign/campaignManager');
 const PathHelper = require('../modules/utils/pathHelper');
 const { createCampaignId } = require('../modules/utils/correlation');
+const templateManager = require('../modules/utils/templateManager');
 
 // --- SINGLETONS ---
 // In a real app, we might use dependency injection, but here we instantiate singletons.
 // const sessionManager = new SessionManager(); // Removed unused instance
 const campaignManager = new CampaignManager(); 
 // Note: CampaignManager internally creates its own SessionManager. 
-// For this simple architecture, we will share instances or rely on file-system state.
-// Ideally, CampaignManager should accept a sessionManager instance.
-// Let's patch CampaignManager runtime to use our shared sessionManager if needed, 
-// or just use campaignManager's internal one for Simplicity. 
-// BETTER: Let's use campaignManager's sessionManager to ensure consistency.
 
 class ApiServer {
   constructor() {
@@ -34,8 +30,25 @@ class ApiServer {
       }
     });
 
-    this.upload = multer({ dest: PathHelper.resolve('data', 'uploads') });
-    this.port = 3001;
+    this.upload = multer({ dest: PathHelper.getUploadsDir() });
+    
+    // Dynamic Port Handling: Allow Env Var, default to 3001
+    // Handle explicitly undefined or empty string by fallback
+    const envPort = process.env.PORT;
+    this.port = envPort ? parseInt(envPort, 10) : 3001;
+
+    // Frontend Path Resolution
+    // Strategy: 
+    // 1. If Packaged (pkg/exe): Adjacent 'frontend' folder
+    // 2. If Dev (Node): '../../Frontend/out' relative to this file
+    // Note: We use process.pkg to detect native wrap, or assume standard dev structure
+    if (process.pkg) {
+         this.frontendPath = path.join(path.dirname(process.execPath), 'frontend');
+    } else {
+         // Current: Backend/src/server/api.js -> ../../../Frontend/out
+         this.frontendPath = path.resolve(__dirname, '..', '..', '..', 'Frontend', 'out');
+    }
+
     this.logHistory = []; // Buffer for startup logs
 
     // Custom Emitter Adapter to capture logs before sending to socket
@@ -53,6 +66,7 @@ class ApiServer {
     this.setupMiddleware();
     this.setupRoutes();
     this.setupSocket();
+    this.setupFrontend();
 
     // Auto-Resume Campaign if active
     campaignManager.initialize().then(async () => {
@@ -65,6 +79,24 @@ class ApiServer {
     }).catch(err => {
         logger.error(`System: Resume Check Failed: ${err.message}`);
     });
+  }
+
+  setupFrontend() {
+      // Logic to serve static frontend
+      if (this.frontendPath && fs.existsSync(this.frontendPath)) {
+          logger.info(`Frontend: Serving static files from ${this.frontendPath}`);
+          
+          // Serve Static Assets
+          this.app.use(express.static(this.frontendPath));
+          
+          // Fallback for SPA Routing (Catch-all except /api)
+          // Regex: Does NOT start with /api
+          this.app.get(/^\/(?!api).*/, (req, res) => {
+              res.sendFile(path.join(this.frontendPath, 'index.html'));
+          });
+      } else {
+          logger.warn(`Frontend: Static files not found at ${this.frontendPath}. Running API-only mode.`);
+      }
   }
 
   _addToLogHistory(msg) {
@@ -80,54 +112,82 @@ class ApiServer {
   }
 
   setupRoutes() {
-        // GET /api/status - System Health & Stats
+    // GET /health - Check availability for launcher
+    this.app.get('/health', (req, res) => {
+        res.json({ status: 'ok', pid: process.pid, port: this.server.address()?.port });
+    });
+
+    // GET /api/status - System Health & Stats
     this.app.get('/api/status', (req, res) => {
         // Read from Memory first (Real-time), fallback to Disk
         const state = campaignManager.currentState || campaignManager.loadState();
         const messageStatus = state.messageStatus || {};
         
-        // NEW: Get Persistent Daily Stats
-        const dailyStats = campaignManager.getDailyStats();
+        // NEW: Get Persistent Daily Stats with History
+        const { today, history } = campaignManager.getDailyStats();
 
-        // Calculate Delivery Rate based on Daily Stats if available, else fallback
-        // Since we don't track failure/delivery separately efficiently in simple stats yet, 
-        // let's assume totalSent in stats is what we want.
-        // For delivery_rate, we might need to track failures in stats.json too?
-        // My simple implementation tracked 'totalSent' (for SENT/DELIVERED). 
-        // It didn't track Attempts vs Failures.
-        // Let's stick to campaign-specific delivery rate OR update stats to track attempts?
-        // User asked for "Total Enviado Hoje" (Total Sent Today).
+        const totalSent = today.totalSent || 0;
+        const totalFailed = today.totalFailed || 0;
+        const totalDelivered = today.totalDelivered || 0;
+        const totalAttempts = totalSent + totalFailed;
         
-        const totalSent = dailyStats.totalSent; // Persistent
-        
-        // Use current campaign for delivery rate for now, or 100% if totalSent > 0
-        // (Improving this later if needed)
-        const deliveryRate = totalSent > 0 ? 100 : 0; 
+        // Correct delivery rate: (delivered / attempts) * 100
+        // FIX: Denominator is now Success + Failure. Result is number with 2 decimals.
+        // We use Number() to convert string "88.89" back to number if needed, or keep as string/number.
+        // Requested: Max 2 decimals, no rounding to integer.
+        const rawRate = totalSent > 0 ? (totalDelivered / totalSent) * 100 : 0;
+        const deliveryRate = Number(Math.min(100, rawRate).toFixed(2));
+
+        // --- COMPARISONS (VS YESTERDAY) ---
+        const yesterdayDate = new Date();
+        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+        const yesterdayKey = yesterdayDate.toISOString().split('T')[0];
+        const yesterdayStats = history[yesterdayKey] || { totalSent: 0, totalDelivered: 0 };
+
+        const calcDiff = (current, previous) => {
+            if (previous === 0) return current === 0 ? 0 : 100; // 0 to 0 = 0%, 0 to 10 = 100%
+            return Math.round(((current - previous) / previous) * 100);
+        };
+
+        const comparisons = {
+            total_sent: calcDiff(totalSent, yesterdayStats.totalSent || 0),
+            delivery_rate: calcDiff(deliveryRate, (yesterdayStats.totalDelivered > 0 ? 100 : 0)), // Dummy logic for now
+            // For chips, we don't have historical connection count yet, so we assume 0 change or 100% if new
+            connections: 0 
+        };
 
         // Queue Calculation
-        // "Fila de Envio": Processed / Total
         const totalRows = state.totalContacts || 0;
         const processedCount = state.processedRows ? state.processedRows.length : 0;
+        
+        // Stats Date for Day Reset Detection
+        // todayKey is not defined in scope, we need to get it from CampaignManager or reconstruct it
+        const todayKey = new Date().toISOString().split('T')[0];
 
         res.json({
             active_campaigns: campaignManager.hasActiveCampaign() ? 1 : 0,
             total_sent: totalSent,
             delivery_rate: deliveryRate,
+            delivered_count: totalDelivered,
+            failed_count: totalFailed,
+            total_attempts: totalAttempts,
             queue_current: processedCount,  // "Já foram lidos"
-            queue_total: totalRows          // "Serão lidos"
+            queue_total: totalRows,          // "Serão lidos"
+            comparisons, // Pass to Frontend
+            
+            // ROBUST SYNC:
+            stats_seq: today.stats_seq || 0,
+            stats_date: todayKey,
+            last_updated: today.last_updated || 0
         });
     });
 
-    // NEW: GET /api/dashboard/hourly - Analytics
+    // GET /api/dashboard/hourly - Analytics
     this.app.get('/api/dashboard/hourly', (req, res) => {
         try {
             const dailyStats = campaignManager.getDailyStats();
-            const hourlyCounts = dailyStats.hourly || {};
-            
-            // Generate full 24h keys for today (00:00 to 23:00)
-            // Or just last 24h? User request says "Últimas 24h".
-            // Since stats.json resets daily, we only have "Today's hours".
-            // We will return 00:00 to 23:00 for the current day.
+            // FIX: Access 'today.hourly' instead of root 'hourly'
+            const hourlyCounts = dailyStats.today?.hourly || {};
             
             const chartData = [];
             for (let i = 0; i < 24; i++) {
@@ -138,6 +198,9 @@ class ApiServer {
                 });
             }
 
+            // Optional: expose sequence for debugging/sync (does not change response shape)
+            res.set('X-Stats-Seq', String(dailyStats.today?.stats_seq || 0));
+            res.set('X-Stats-Date', String(new Date().toISOString().split('T')[0]));
             res.json(chartData);
         } catch (e) {
             logger.error(`Dashboard Analytics Error: ${e.message}`);
@@ -184,10 +247,6 @@ class ApiServer {
         const id = waClient.id;
         const socketIo = this.io;
         campaignManager.registerSessionClient(waClient);
-
-        // Clean up previous listeners to avoid duplicates if any (simple approach)
-        // In a full implementation we'd track listeners, but for now we assume fresh attach
-        // REMOVED removeAllListeners to avoid breaking internal WhatsAppClient logic!
         
         // Helper to clear existing timeout
         const clearQrTimeout = () => {
@@ -209,11 +268,9 @@ class ApiServer {
           }, 500);
         }
 
-        waClient.on('qr', async (qr) => {
+        const emitQr = async (qr) => {
             logger.info(`[Socket] Emitting QR for ${id}`);
             
-            // Only start the destruction timer ONCE (on the first QR)
-            // Do NOT reset it when Baileys rotates the QR key (every ~20s)
             if (!waClient.qrTimeout) {
                 if (!waClient.qrTimestamp) {
                     waClient.qrTimestamp = Date.now();
@@ -243,7 +300,15 @@ class ApiServer {
             } catch (err) {
                 logger.error(`QR Generation Error: ${err.message}`);
             }
-        });
+        };
+
+        waClient.on('qr', emitQr);
+
+        // FIX: Check if QR was already emitted before we attached listeners (Race Condition)
+        if (waClient.lastQr && (waClient.status === 'AUTHENTICATING' || waClient.status === 'INIT')) {
+             logger.info(`[Socket] Catch-up: Emitting pre-existing QR for ${id}`);
+             emitQr(waClient.lastQr);
+        }
 
         waClient.on('status', ({ status }) => {
           logger.info(`[Socket] Emitting ${status} for ${id}`);
@@ -398,6 +463,43 @@ class ApiServer {
             res.json({ success: true, message: 'Campaign started in background', campaignId });
 
         } catch (e) {
+            if (res.headersSent) return;
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // --- TEMPLATES ---
+    this.app.get('/api/templates', (req, res) => {
+        try {
+            res.set('Cache-Control', 'no-store');
+            const templates = templateManager.getAll();
+            res.json(templates);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    this.app.post('/api/templates', (req, res) => {
+        try {
+            const template = req.body;
+            if (!template.id || !template.label || !template.text) {
+                throw new Error("Invalid template data");
+            }
+            // Ensure isCustom is true for API saved templates
+            template.isCustom = true; 
+            const saved = templateManager.saveTemplate(template);
+            res.json({ success: true, template: saved });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    this.app.delete('/api/templates/:id', (req, res) => {
+        try {
+            const { id } = req.params;
+            templateManager.deleteTemplate(id);
+            res.json({ success: true });
+        } catch (e) {
             res.status(500).json({ error: e.message });
         }
     });
@@ -419,39 +521,12 @@ class ApiServer {
             logger.info(`Frontend disconnected: ${socket.id}`);
         });
     });
-
-    // Hook into Logger to stream logs to frontend
-    // We can add a transport to Winston, or just Monkey Patch for now
-    // Let's add a transport in a cleaner way later, 
-    // for MVP -> Monkey Patch logger.info/error
-    // Hook into Logger to stream logs to frontend
-    // DISABLED FOR STABILITY: Monkey patching logic caused crash.
-    // We will rely on explicit socket emits for critical events.
-    
-    /*
-    const originalInfo = logger.info.bind(logger);
-    logger.info = (msg, meta) => {
-        originalInfo(msg, meta);
-        this.io.emit('log', `[INFO] ${msg}`);
-    };
-
-    const originalError = logger.error.bind(logger);
-    logger.error = (msg, meta) => {
-        originalError(msg, meta);
-        this.io.emit('log', `[ERROR] ${msg}`);
-    };
-    */
-
-    // Hook into SessionManager events?
-    // We need to listen to 'qr' events from whatsapp clients.
-    // This requires refactoring SessionManager to emit global events 
-    // or attaching listeners when we create sessions.
-    // For Day 5, we'll assume basic log streaming covers visibility.
   }
 
   start() {
-    this.server.listen(this.port, async () => {
-        logger.info(`API Server running on http://localhost:${this.port}`);
+    this.server.listen(this.port, '127.0.0.1', async () => {
+        const actualPort = this.server.address().port;
+        logger.info(`API Server running on http://127.0.0.1:${actualPort} (PID: ${process.pid})`);
         
         // Load saved sessions after server starts
         await campaignManager.sessionManager.loadSessions();

@@ -1,12 +1,7 @@
 const P = require('pino');
 const logger = require('../../utils/logger');
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  DisconnectReason,
-  jidNormalizedUser
-} = require('@whiskeysockets/baileys');
+// Removed static require for ESM compatibility
+// const { ... } = require('@whiskeysockets/baileys');
 
 const pathHelper = require('../../utils/pathHelper');
 const WhatsAppProvider = require('./whatsAppProvider');
@@ -23,6 +18,19 @@ class BaileysProvider extends WhatsAppProvider {
   }
 
   async initialize() {
+    // DYNAMIC IMPORT FIX FOR ELECTRON/ESM
+    const {
+      default: makeWASocket,
+      useMultiFileAuthState,
+      fetchLatestBaileysVersion,
+      DisconnectReason,
+      jidNormalizedUser
+    } = await import('@whiskeysockets/baileys');
+
+    // Make available to other methods if needed (though mostly used here or local helpers)
+    this.DisconnectReason = DisconnectReason;
+    this.jidNormalizedUser = jidNormalizedUser;
+
     const sessionDir = pathHelper.ensureDir(
       pathHelper.resolve('data', 'sessions', `session-${this.id}`)
     );
@@ -81,7 +89,8 @@ class BaileysProvider extends WhatsAppProvider {
       throw new Error('Provider not initialized');
     }
     const normalized = this._normalizeNumber(rawNumber);
-    const constructedJid = jidNormalizedUser(`${normalized}@s.whatsapp.net`);
+    // Use instance property set during initialize
+    const constructedJid = this.jidNormalizedUser(`${normalized}@s.whatsapp.net`);
     
     const result = await this.socket.onWhatsApp(constructedJid);
 
@@ -105,6 +114,9 @@ class BaileysProvider extends WhatsAppProvider {
 
   async getPersistedSessionInfo() {
     try {
+        // Dynamic import needed here as this runs before initialize
+        const { jidNormalizedUser } = await import('@whiskeysockets/baileys');
+        
         const sessionDir = pathHelper.resolve('data', 'sessions', `session-${this.id}`);
         const credsPath = path.join(sessionDir, 'creds.json');
         
@@ -123,7 +135,7 @@ class BaileysProvider extends WhatsAppProvider {
 
   getPhoneNumber() {
     const id = this.socket?.user?.id;
-    if (id) return jidNormalizedUser(id).split('@')[0];
+    if (id && this.jidNormalizedUser) return this.jidNormalizedUser(id).split('@')[0];
     return null; 
   }
 
@@ -160,7 +172,8 @@ class BaileysProvider extends WhatsAppProvider {
   }
 
   isLoggedOut() {
-    return this.disconnectReason === DisconnectReason.loggedOut;
+    // Usage of instance property
+    return this.disconnectReason === this.DisconnectReason?.loggedOut;
   }
 
   _normalizeNumber(rawNumber) {

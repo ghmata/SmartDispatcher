@@ -6,6 +6,10 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  env: {
+    BUILD_TIMESTAMP: new Date().toISOString(),
+  },
+  output: 'export',
 }
 
 export default nextConfig

@@ -143,16 +143,17 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   const refreshSessions = useCallback(async () => {
     try {
-        // Fetch from API
-        // In a real app we might merge with pending local state, 
-        // but for now API is truth + Socket updates
+        // Dynamic fetch URL: Env or Relative
+        const envUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+        let url;
         
-        let baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
-        if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-        
-        // If env var is root (http://localhost:3001) -> add /api/sessions
-        // If env var is api (http://localhost:3001/api) -> add /sessions
-        const url = baseUrl.endsWith('/api') ? `${baseUrl}/sessions` : `${baseUrl}/api/sessions`;
+        if (envUrl) {
+           let clean = envUrl.endsWith('/') ? envUrl.slice(0, -1) : envUrl;
+           url = clean.endsWith('/api') ? `${clean}/sessions` : `${clean}/api/sessions`;
+        } else {
+           // Standard Production: Relative to current origin
+           url = '/api/sessions';
+        }
         
         const res = await fetch(url);
         const data = await res.json();
@@ -181,21 +182,26 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Connect to Real Backend
-    // Ensure we handle defaults and avoid double /api
-    let baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
-    
-    // Normalization: Remove trailing slash
-    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-    
-    // For Socket: must be root (remove /api if present)
-    const socketUrl = baseUrl.endsWith('/api') ? baseUrl.slice(0, -4) : baseUrl;
+    // Socket Connection Logic
+    // If no Env Var, we want undefined so it connects to window.location.origin (Dynamic Port)
+    const envUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+    let socketUrl: string | undefined = undefined; 
 
-    const socketInstance = io(socketUrl);
+    if (envUrl) {
+       // Only if strictly defined (Dev mode)
+       let clean = envUrl.endsWith('/') ? envUrl.slice(0, -1) : envUrl;
+       socketUrl = clean.endsWith('/api') ? clean.slice(0, -4) : clean;
+    }
+
+    // Connect (undefined url = same origin)
+    const socketInstance = io(socketUrl, {
+        path: '/socket.io', // Standard socket.io path
+        transports: ['websocket', 'polling']
+    });
 
     socketInstance.on("connect", () => {
       setIsConnected(true);
-      console.log(`[Socket] Connected to ${socketUrl}`);
+      console.log(`[Socket] Connected to ${socketUrl || 'window.origin'}`);
       refreshSessions(); // Sync on connect
     });
 

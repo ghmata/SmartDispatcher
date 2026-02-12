@@ -1,10 +1,25 @@
 // Standardized API Client with Timeout & Error Handling
+// Logic: In Next.js Export + Electron, we are served by the backend (Single Origin).
+// So requests should ALWAYS be relative ('/api').
+// We only use the Env Var if we are in a detached dev mode (e.g. localhost:3000 frontend -> localhost:3001 backend).
 
-let envApi = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api';
-if (envApi.endsWith('/')) envApi = envApi.slice(0, -1);
-// If it refers to root (no /api), append it. If it has /api, keep it.
-// Simple heuristic: if it doesn't end in /api, append it.
-const API_BASE = envApi.endsWith('/api') ? envApi : `${envApi}/api`;
+let API_BASE = '/api';
+
+if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    let envUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+    if (envUrl.endsWith('/')) envUrl = envUrl.slice(0, -1);
+    if (!envUrl.endsWith('/api')) envUrl = `${envUrl}/api`;
+    
+    // Safety check: Only strictly use env var if we are NOT in production export
+    // However, simplest is to let env override if it exists, BUT user instructions say "Zero Config".
+    // So for the build, we ensure this var is NOT set, OR we check window.location.
+    API_BASE = envUrl;
+}
+
+// CRITICAL FIX: If running in Electron (file:// or local server), usually relative is best.
+// If we are server-side rendering (not the case here), relative wouldn't work.
+// Since we are client-side only (SPA), '/api' will be resolved against the current window.location.
+
 
 // Custom Error Class
 export class ApiError extends Error {
@@ -93,6 +108,12 @@ export interface SystemStatus {
   delivery_rate: number;
   queue_current: number;
   queue_total: number;
+  // New comparisons field
+  comparisons?: {
+      total_sent: number;
+      delivery_rate: number;
+      connections: number;
+  };
 }
 
 export interface HourlyData {

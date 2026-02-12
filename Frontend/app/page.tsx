@@ -7,7 +7,7 @@ import { StatusBar } from "@/components/status-bar";
 import { DashboardView } from "@/components/views/dashboard-view";
 import { ConnectionsView } from "@/components/views/connections-view";
 import { CampaignView } from "@/components/views/campaign-view";
-import { SettingsView } from "@/components/views/settings-view";
+// import { SettingsView } from "@/components/views/settings-view";
 import { getStatus } from "@/lib/api";
 
 function AppContent() {
@@ -18,7 +18,12 @@ function AppContent() {
   useEffect(() => {
     const savedRoute = localStorage.getItem("smart_dispatcher_route");
     if (savedRoute) {
-      setCurrentRoute(savedRoute);
+      // FIX: Remove Settings access from UI (redirect to dashboard)
+      if (savedRoute === "settings") {
+         setCurrentRoute("dashboard");
+      } else {
+         setCurrentRoute(savedRoute);
+      }
     }
   }, []);
 
@@ -96,8 +101,8 @@ function AppContent() {
         return <ConnectionsView />;
       case "campaign":
         return <CampaignView onRouteChange={setCurrentRoute} />;
-      case "settings":
-        return <SettingsView />;
+      // case "settings": -> REMOVED for Zero-Config
+      //   return <SettingsView />;
       default:
         return <DashboardView />;
     }

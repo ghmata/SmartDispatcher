@@ -233,7 +233,9 @@ class WhatsAppClient extends EventEmitter {
     try {
       const { jid, exists } = await this.provider.validateNumber(rawNumber);
       if (!exists) {
-        this._transition(STATES.ERROR, 'number_not_registered');
+        this._transition(STATES.READY, 'invalid_number_skipped');
+        this._scheduleIdle();
+        logger.warn(`[${this.id}] Number ${rawNumber} not on WhatsApp. Skipping.`);
         throw new Error(`Number ${rawNumber} is not registered on WhatsApp`);
       }
 
@@ -264,7 +266,21 @@ class WhatsAppClient extends EventEmitter {
       logger.info(`[${this.id}] Message sent to ${jid}.`);
       return { messageId, jid: remoteJid, providerResult: result };
     } catch (error) {
-      this._transition(STATES.ERROR, 'send_failure');
+      const isConnectionError = [
+        'Connection Closed',
+        'Timed Out',
+        'Provider not initialized',
+        'not ready'
+      ].some(msg => error.message?.includes(msg));
+
+      if (isConnectionError) {
+        this._transition(STATES.ERROR, 'send_failure');
+      } else {
+        // Erro de dados (número inválido, formato errado, etc.)
+        // Chip permanece disponível para próximas mensagens
+        this._transition(STATES.READY, 'data_error_recovered');
+        this._scheduleIdle();
+      }
       if (correlation && Object.keys(correlation).length > 0) {
         this.emit('message_status', {
           ...correlation,

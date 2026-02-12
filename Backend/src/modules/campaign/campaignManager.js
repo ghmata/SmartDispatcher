@@ -31,51 +31,112 @@ class CampaignManager {
    * Updates daily, persistent statistics.
    * @param {string} status 'SENT' | 'DELIVERED'
    */
+  /**
+   * Updates daily, persistent statistics with history retention.
+   * @param {string} status 'SENT' | 'DELIVERED'
+   */
   _updateDailyStats(status) {
       try {
           let stats = {};
           if (fs.existsSync(this.statsFile)) {
-              stats = JSON.parse(fs.readFileSync(this.statsFile, 'utf8'));
+              try {
+                  stats = JSON.parse(fs.readFileSync(this.statsFile, 'utf8'));
+              } catch (e) { stats = {}; }
+          }
+
+          // Migration: If file has legacy format (root properties like "totalSent"), reset or wrap it.
+          // Legacy: { date: "...", totalSent: ... } -> New: { "YYYY-MM-DD": { ... } }
+          if (stats.date && typeof stats.date === 'string') {
+               const legacyDate = stats.date;
+               const legacyData = { ...stats };
+               delete legacyData.date;
+               stats = { [legacyDate]: legacyData };
           }
 
           const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
           
-          // Reset if new day
-          if (stats.date !== today) {
-              stats = { date: today, totalSent: 0, totalDelivered: 0, hourly: {} };
-          }
-
-          // Increment Counts
-          if (['SENT', 'DELIVERED', 'SERVER_ACK'].includes(status)) {
-              stats.totalSent = (stats.totalSent || 0) + 1;
-              
-              // Update Hourly
-              const hour = new Date().getHours();
-              const hourKey = `${hour.toString().padStart(2, '0')}:00`;
-              stats.hourly = stats.hourly || {};
-              stats.hourly[hourKey] = (stats.hourly[hourKey] || 0) + 1;
-          }
-          
-          fs.writeFileSync(this.statsFile, JSON.stringify(stats, null, 2));
-          return stats;
-      } catch (err) {
-          logger.error(`Failed to update daily stats: ${err.message}`);
-          return null;
+      // Ensure today exists
+      if (!stats[today]) {
+          stats[today] = { totalSent: 0, totalDelivered: 0, totalFailed: 0, hourly: {}, stats_seq: 0, stats_date: today, last_updated: 0 };
       }
+
+      // MONOTONIC SEQUENCE: Used for frontend synchronization
+      stats[today].stats_seq = (stats[today].stats_seq || 0) + 1;
+
+      // Metadata for robust frontend synchronization
+      stats[today].stats_date = today;
+      stats[today].last_updated = Date.now();
+
+      // Increment Counts
+      stats[today].totalSent = stats[today].totalSent || 0;
+      stats[today].totalDelivered = stats[today].totalDelivered || 0;
+      stats[today].totalFailed = stats[today].totalFailed || 0;
+      // FIX: 'totalSent' ONLY counts Successes (as requested).
+      // We track 'totalFailed' separately for the Delivery Rate calculation.
+      if (status === 'SENT') {
+          stats[today].totalSent = (stats[today].totalSent || 0) + 1;
+          
+          // Update Hourly (Only Successes in Chart)
+          const hour = new Date().getHours();
+          const hourKey = `${hour.toString().padStart(2, '0')}:00`;
+          stats[today].hourly = stats[today].hourly || {};
+          stats[today].hourly[hourKey] = (stats[today].hourly[hourKey] || 0) + 1;
+      } else if (status === 'FAILED') {
+          stats[today].totalFailed = (stats[today].totalFailed || 0) + 1;
+      }
+      
+      if (status === 'DELIVERED') {
+          stats[today].totalDelivered = (stats[today].totalDelivered || 0) + 1;
+      }
+      
+      // Prune older than 30 days
+      const dates = Object.keys(stats).sort();
+      if (dates.length > 30) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - 30);
+          const cutoffStr = cutoff.toISOString().split('T')[0];
+          
+          dates.forEach(date => {
+              if (date < cutoffStr) delete stats[date];
+          });
+      }
+      
+      fs.writeFileSync(this.statsFile, JSON.stringify(stats, null, 2));
+      return stats[today];
+  } catch (err) {
+      logger.error(`Failed to update daily stats: ${err.message}`);
+      return null;
   }
+}
 
   /**
-   * Loads daily stats (for API).
+   * Loads daily stats (Active day + History).
    */
   getDailyStats() {
       try {
           if (fs.existsSync(this.statsFile)) {
                const stats = JSON.parse(fs.readFileSync(this.statsFile, 'utf8'));
+               // Check if migrated (keyed by date)
                const today = new Date().toISOString().split('T')[0];
-               if (stats.date === today) return stats;
+               
+               // Handle Legacy Read (Edge case if file wasn't updated yet)
+               if (stats.date && typeof stats.date === 'string') return {
+                   today: (stats.date === today ? stats : { totalSent: 0, totalDelivered: 0, hourly: {} }),
+                   history: {}
+               };
+
+               return {
+                   today: stats[today] || { totalSent: 0, totalDelivered: 0, hourly: {} },
+                   history: stats
+               };
           }
       } catch (err) { }
-      return { date: new Date().toISOString().split('T')[0], totalSent: 0, totalDelivered: 0, hourly: {} };
+      
+      // Default
+      return { 
+          today: { totalSent: 0, totalDelivered: 0, hourly: {} }, 
+          history: {} 
+      };
   }
 
   /**
@@ -254,7 +315,7 @@ class CampaignManager {
       totalContacts: allContacts.length,
       remaining: toProcess.length
     });
-    logger.info(`${formatCorrelationTag(campaignId)} Starting campaign. Total: ${allContacts.length}, Remaining: ${toProcess.length}`);
+    logger.info(`${formatCorrelationTag(campaignId)} Starting campaign (v1.1-FIXED-STATS). Total: ${allContacts.length}, Remaining: ${toProcess.length}`);
 
     // NEW: Wait for Active Sessions (Race Condition Fix)
     // Only wait if we actually have things to process
@@ -327,13 +388,18 @@ class CampaignManager {
            updatedAt: new Date().toISOString()
          };
 
+         // UPDATE STATS & GET SEQUENCE
+         const updatedStats = this._updateDailyStats(result.status); 
+         const currentSeq = updatedStats ? updatedStats.stats_seq : 0;
+
          this._emitEvent('message_status', {
            campaignId,
            contactId,
            clientMessageId,
            correlationId,
            status: result.status,
-           phone: contact.phone
+           phone: contact.phone,
+           stats_seq: currentSeq // PASS SEQUENCE TO FRONTEND
          });
          
          // Accept SENT (Soft Success) OR DELIVERED (Hard Success)
@@ -343,7 +409,6 @@ class CampaignManager {
             
             // Persist state immediately to update UI/API visibility
             this.saveState(state);
-            this._updateDailyStats(result.status); // Update Daily Stats Persistently
             
             // Force Queue Update on Frontend
             this._emitEvent('queue_update', {
@@ -381,6 +446,10 @@ class CampaignManager {
                updatedAt: new Date().toISOString()
              };
              
+             // UPDATE STATS (Failed) & GET SEQUENCE
+             const updatedStats = this._updateDailyStats('FAILED');
+             const currentSeq = updatedStats ? updatedStats.stats_seq : 0;
+
              // Emit FAILED event for Frontend Log Terminal
              this._emitEvent('message_status', {
                 campaignId,
@@ -389,13 +458,15 @@ class CampaignManager {
                 correlationId: correlationTag, // simplified
                 status: 'FAILED',
                 phone: contact.phone,
-                error: err.message
+                error: err.message,
+                stats_seq: currentSeq // PASS SEQUENCE TO FRONTEND
              });
           }
 
           // We might mark as processed to skip next time, or keep to retry. 
           // For now, let's mark processed so we don't loop forever on bad numbers.
           state.processedRows.push(contact.row); 
+          
        }
 
        // Save state after each step for resilience
@@ -405,9 +476,37 @@ class CampaignManager {
     this._emitEvent('campaign_finished', {
       campaignId,
       processed: state.processedRows.length,
-      failed: state.failedRows.length
+      failed: state.failedRows.length,
+      failedContacts: state.failedRows.map(f => ({
+        row: f.row,
+        phone: allContacts.find(c => c.row === f.row)?.phone || 'Desconhecido',
+        error: f.error
+      }))
     });
-    logger.info(`${formatCorrelationTag(campaignId)} Campaign execution finished or paused.`);
+
+    // Log relatório de falhas para o terminal
+    const successCount = state.processedRows.length - state.failedRows.length;
+    let finalLogMessage = `🏁 Campanha Finalizada: ${state.processedRows.length} processados. ${successCount} sucessos. ${state.failedRows.length} falhas.`;
+
+    if (state.failedRows.length > 0) {
+      logger.warn(`${formatCorrelationTag(campaignId)} ===== RELATÓRIO DE FALHAS =====`);
+      
+      const failedNumbers = [];
+      state.failedRows.forEach((failure, index) => {
+        const contact = allContacts.find(c => c.row === failure.row);
+        const phone = contact?.phone || 'Desconhecido';
+        failedNumbers.push(phone);
+        logger.warn(`${formatCorrelationTag(campaignId)} ${index + 1}. Linha ${failure.row} - ${phone}: ${failure.error}`);
+      });
+      
+      finalLogMessage += ` Números que falharam: ${failedNumbers.join(', ')}`;
+      
+      logger.warn(`${formatCorrelationTag(campaignId)} ===============================`);
+    }
+
+    logger.info(`${formatCorrelationTag(campaignId)} ${finalLogMessage}`);
+    this._emitEvent('log', finalLogMessage); // Emit detailed log to frontend
+
     return { campaignId };
   }
 
@@ -435,15 +534,30 @@ class CampaignManager {
     const handler = (update) => {
       const key = update.clientMessageId || update.messageId;
       if (key && this.currentState?.messageStatus?.[key]) {
+        const oldStatus = this.currentState.messageStatus[key].status;
         this.currentState.messageStatus[key] = {
           ...this.currentState.messageStatus[key],
           status: update.status,
           updatedAt: new Date().toISOString()
         };
-        this.saveState(this.currentState);
+        this.saveState(this.currentState);        // NEW: Track Delivery in Stats
+        if (update.status === 'DELIVERED' && oldStatus !== 'DELIVERED') {
+            const updatedStats = this._updateDailyStats('DELIVERED');
+            const currentSeq = updatedStats ? updatedStats.stats_seq : 0;
+            const statsDate = updatedStats ? updatedStats.stats_date : undefined;
+
+            // IMPORTANT: Emit delivery updates on a separate event to avoid double-counting
+            // 'DELIVERED' as an additional 'sent' in the Dashboard.
+            this._emitEvent('delivery_update', {
+                ...update,
+                stats_seq: currentSeq,
+                stats_date: statsDate
+            });
+            return;
+        }
       }
       this._emitEvent('message_status', update);
-    };
+};
 
     client.on('message_status', handler);
     this.messageHandlers.set(client.id, handler);

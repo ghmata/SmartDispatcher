@@ -8,6 +8,11 @@ interface MetricsCardsProps {
   deliveryRate: number;
   chipsConnected: number;
   chipsTotal: number;
+  comparisons?: {
+    total_sent: number;
+    delivery_rate: number;
+    connections: number;
+  };
 }
 
 export function MetricsCards({
@@ -15,28 +20,41 @@ export function MetricsCards({
   deliveryRate,
   chipsConnected,
   chipsTotal,
+  comparisons,
 }: MetricsCardsProps) {
+  const getTrend = (val: number) => {
+    const sign = val >= 0 ? "+" : "";
+    return `${sign}${val}%`;
+  };
+
   const metrics = [
     {
       title: "Total Enviado Hoje",
       value: totalSent.toLocaleString("pt-BR"),
       icon: Send,
-      trend: "+12%",
-      trendUp: true,
+      trend: getTrend(comparisons?.total_sent ?? 0),
+      trendUp: (comparisons?.total_sent ?? 0) >= 0,
     },
     {
       title: "Taxa de Entrega",
       value: `${deliveryRate}%`,
       icon: CheckCircle,
-      trend: "+2.3%",
-      trendUp: true,
+      trend: getTrend(comparisons?.delivery_rate ?? 0),
+      trendUp: (comparisons?.delivery_rate ?? 0) >= 0,
     },
     {
       title: "Chips Conectados",
       value: `${chipsConnected} de ${chipsTotal}`,
       icon: Smartphone,
-      trend: chipsConnected === chipsTotal ? "100%" : `${Math.round((chipsConnected / chipsTotal) * 100)}%`,
-      trendUp: chipsConnected === chipsTotal,
+      trend: chipsConnected === chipsTotal ? "100%" : (chipsTotal > 0 ? `${Math.round((chipsConnected / chipsTotal) * 100)}%` : "0%"), 
+      // User asked for "comparativos em % com o dia anterior -> funcional" inside the cards.
+      // The 3rd card in screenshot says "Chips Conectados / 1 de 1 / +100% vs ontem".
+      // So I should use the comparison logic here too if available, OR keep the capacity logic + comparison?
+      // The current code used capacity as "trend" (100% capacity).
+      // But the screenshot showed "+100% vs ontem".
+      // I will prioritize "vs Yesterday" to align with the user request.
+      trend: getTrend(comparisons?.connections ?? 0),
+      trendUp: (comparisons?.connections ?? 0) >= 0,
     },
   ];
 

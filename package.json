@@ -1,0 +1,58 @@
+{
+  "name": "smart-dispatcher-launcher",
+  "version": "1.0.0",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "install-frontend": "cd Frontend && npm install",
+    "build-frontend": "cd Frontend && npm run build",
+    "install-backend": "cd Backend && npm install --omit=dev",
+    "dist": "npm run install-frontend && npm run build-frontend && npm run install-backend && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.7.0"
+  },
+  "build": {
+    "appId": "com.smart.dispatcher",
+    "productName": "Smart Dispatcher",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "Backend",
+        "to": "app/Backend",
+        "filter": [
+          "**/*",
+          "!**/*.sqlite",
+          "!data/**"
+        ]
+      },
+      {
+        "from": "Backend/node_modules",
+        "to": "app/Backend/node_modules"
+      },
+      {
+        "from": "Frontend/out",
+        "to": "app/Frontend/out"
+      }
+    ],
+    "win": {
+      "target": "dir",
+      "artifactName": "${productName}-${version}-Portable.${ext}",
+      "forceCodeSigning": false,
+      "icon": "build/icon.ico"
+    },
+    "asar": false
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Launcher for Smart Dispatcher"
+}
